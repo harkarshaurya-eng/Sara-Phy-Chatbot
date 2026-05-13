@@ -1,6 +1,6 @@
 # physics-chatbot-finetune
 
-`physics-chatbot-finetune` is a complete starter repository for building a physics-focused chat model from open datasets, fine-tuning it with LoRA on Google Colab TPU v5e-1, and serving it through a local OpenAI-compatible API for tools like ComfyUI.
+`physics-chatbot-finetune` is a complete starter repository for building a physics-focused chat model from open datasets, fine-tuning it with QLoRA on a Google Colab T4 GPU, and serving it through a local OpenAI-compatible API for tools like ComfyUI.
 
 The default base model is `Qwen/Qwen3-4B`, and you can switch to `Qwen/Qwen3.5-4B`, `google/gemma-3-4b-it`, or `meta-llama/Llama-3.2-3B-Instruct` by editing `config.yaml`.
 
@@ -10,8 +10,8 @@ This repository helps you:
 
 1. Download openly licensed physics datasets, conversational SFT datasets, and related science datasets with a license-aware manifest.
 2. Clean, normalize, deduplicate, and convert records into instruction/chat JSONL.
-3. Fine-tune a 4B to 5B model with LoRA by default.
-4. Run on Google Colab TPU v5e-1 through PyTorch/XLA, with GPU/CPU fallback if TPU is unavailable.
+3. Fine-tune a 4B to 5B model with QLoRA by default, or standard LoRA when CUDA quantization is unavailable.
+4. Run on a Google Colab T4 GPU by default, with CPU fallback if CUDA is unavailable.
 5. Save LoRA adapters and optionally merge them into a standalone model.
 6. Chat locally through a terminal CLI.
 7. Serve a local OpenAI-compatible `POST /v1/chat/completions` API for ComfyUI or other local clients.
@@ -21,7 +21,7 @@ This repository helps you:
 LoRA updates a small set of trainable adapter weights instead of rewriting the full base model. That matters here because:
 
 - It is much cheaper in memory than full fine-tuning.
-- It is more realistic on Colab TPU and consumer GPU setups.
+- It is more realistic on a Colab T4 and other consumer GPU setups.
 - It is easier to export, version, and swap between different adapters.
 - It reduces the chance of destroying the base model's general instruction-following behavior.
 
@@ -31,18 +31,18 @@ This repo does **not** attempt full fine-tuning unless you explicitly enable it 
 
 Recommended:
 
-- Google Colab TPU v5e-1 for training with standard LoRA
+- Google Colab T4 GPU for training with QLoRA
 - A CUDA GPU for local inference if you want better response speed
 
 Supported fallback:
 
-- GPU without TPU
+- Other CUDA GPUs
 - CPU only, for smoke tests and API validation
 
 Important:
 
-- True `bitsandbytes` QLoRA is a CUDA-only path.
-- On TPU, this repo automatically falls back to standard LoRA.
+- `bitsandbytes` QLoRA is a CUDA-only path, which is why the default Colab target is now T4.
+- If CUDA is unavailable, the training script automatically falls back to standard LoRA.
 - Some base models are gated or require license acceptance on Hugging Face before download.
 
 ## Repository Layout
@@ -133,7 +133,7 @@ Change models by editing `base_model:` in `config.yaml`.
 
 Why this default:
 
-- `Qwen/Qwen3-4B` is a text-only causal LM, which keeps SFT simpler on TPU than multimodal checkpoints.
+- `Qwen/Qwen3-4B` is a text-only causal LM, which keeps SFT and QLoRA straightforward on a T4 GPU.
 - Its official model card explicitly highlights multi-turn dialogue, instruction following, and chat use cases.
 - `google/gemma-3-4b-it` is still supported, but its official Hugging Face packaging is `image-text-to-text`, which adds avoidable complexity for this repo's pure chatbot focus.
 
@@ -141,19 +141,19 @@ Why this default:
 
 ### 1. Install Dependencies
 
-Local CPU/GPU:
+Local CPU/GPU or Colab T4:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Colab TPU:
+Legacy TPU only:
 
 ```bash
 pip install -r requirements_tpu.txt
 ```
 
-The TPU requirements file is pinned to the current PyTorch/XLA 2.8 line for Colab Python 3.12 compatibility.
+`requirements.txt` is the default path for this repo now because it includes the CUDA-side QLoRA dependency `bitsandbytes`. `requirements_tpu.txt` is kept only for legacy TPU/XLA experiments.
 
 ### 2. Check Your Environment
 
@@ -193,13 +193,20 @@ This creates:
 - `data/final/test.jsonl`
 - `outputs/logs/data_report.md`
 
-### 5. Train On TPU Or Fallback Hardware
+### 5. Train On A T4 GPU Or Fallback Hardware
 
 ```bash
 python scripts/03_train_tpu.py --config config.yaml
 ```
 
-The default config is now set to `30` training epochs. You can override that from the command line too:
+The default config is tuned for a Colab T4:
+
+- `training_mode: "qlora"`
+- `load_in_4bit: true`
+- `fp16: true`
+- `bf16: false`
+
+The default config is also set to `30` training epochs. You can override that from the command line too:
 
 ```bash
 python scripts/03_train_tpu.py --config config.yaml --num-train-epochs 30
@@ -208,6 +215,7 @@ python scripts/03_train_tpu.py --config config.yaml --num-train-epochs 30
 Note:
 
 - `early_stopping_patience` is still enabled in `config.yaml`, so training may stop before epoch 30 if validation loss stops improving.
+- With the full mixed dataset, `30` epochs on a T4 can take a long time. For a first smoke test, temporarily lower `max_samples_per_dataset` or `num_train_epochs`.
 
 This saves the final adapter to:
 
@@ -262,7 +270,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
-## Running On Google Colab TPU v5e-1
+## Running On Google Colab T4 GPU
 
 The included notebook is:
 
@@ -270,16 +278,15 @@ The included notebook is:
 
 It contains cells for:
 
-1. mounting Google Drive
-2. installing TPU requirements
-3. checking TPU availability
+1. cloning the repo into Colab
+2. installing GPU requirements
+3. checking CUDA availability
 4. logging into Hugging Face
 5. downloading datasets
 6. preparing the dataset
 7. training the model
-8. copying the final adapter to Drive
-9. optionally merging the adapter
-10. running a chat smoke test
+8. saving the final adapter to Drive
+9. running a chat smoke test
 
 If you switch to gated checkpoints such as Gemma or Llama, accept the license on Hugging Face before running the notebook. The default Qwen model does not require that extra approval step in the same way.
 
@@ -364,16 +371,16 @@ The evaluation script does three simple things:
 
 ## Troubleshooting
 
-### TPU not detected
+### GPU not detected
 
 - Re-run `python scripts/00_check_env.py --config config.yaml`
-- In Colab, make sure the runtime hardware is set to TPU
-- Reinstall `requirements_tpu.txt`
+- In Colab, make sure the runtime hardware is set to `GPU`
+- Run `nvidia-smi` and confirm the notebook reports a T4 or other CUDA device
 
-### QLoRA fails on TPU
+### QLoRA falls back to standard LoRA
 
-- Expected behavior. Use standard LoRA on TPU.
-- If you want QLoRA, switch to a CUDA runtime and set `training_mode: "qlora"`
+- This happens when CUDA is unavailable or the selected base model is not a text-only causal LM
+- Switch to a CUDA runtime and keep the default `Qwen/Qwen3-4B`
 
 ### Gated model download fails
 
@@ -388,11 +395,11 @@ The evaluation script does three simple things:
 - Loosen `min_answer_chars` or enable more sources in `config.yaml`
 - Add your own `data/custom/*.jsonl`
 
-### Colab TPU install fails on `torch_xla`
+### `bitsandbytes` install or import fails
 
-- Use the current `requirements_tpu.txt` from this repo
-- If you uploaded an older copy, replace it before installing
-- On Colab, restart the runtime after changing TPU packages
+- Make sure the runtime is actually `GPU`, not CPU
+- Re-run `pip install -r requirements.txt`
+- Restart the runtime after changing CUDA-side packages if imports still fail
 
 ### Local API starts but generations are slow
 
@@ -407,4 +414,4 @@ The evaluation script does three simple things:
 - Qwen3.5 4B: [https://huggingface.co/Qwen/Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B)
 - Llama 3.2 3B Instruct: [https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct)
 - OpenStax licensing: [https://openstax.org/licensing](https://openstax.org/licensing)
-- PyTorch/XLA TPU docs: [https://docs.pytorch.org/xla/master/](https://docs.pytorch.org/xla/master/)
+- Hugging Face bitsandbytes docs: [https://huggingface.co/docs/transformers/quantization/bitsandbytes](https://huggingface.co/docs/transformers/quantization/bitsandbytes)

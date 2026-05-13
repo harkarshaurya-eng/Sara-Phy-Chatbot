@@ -43,6 +43,7 @@ def main() -> None:
         adapter_path=str(adapter_path) if adapter_path else None,
         merged_model_path=str(merged_model_path) if merged_model_path else None,
         trust_remote_code=bool(config.get("trust_remote_code", True)),
+        load_in_4bit=bool(config.get("load_in_4bit", False)),
         logger=logger,
     )
 

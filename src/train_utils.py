@@ -129,6 +129,8 @@ def detect_runtime() -> dict[str, Any]:
         "cuda_available": False,
         "cuda_device_count": 0,
         "cuda_device_name": None,
+        "cuda_total_memory_gb": None,
+        "cuda_compute_capability": None,
         "mps_available": False,
         "tpu_available": False,
         "xla_supported_devices": [],
@@ -144,6 +146,12 @@ def detect_runtime() -> dict[str, Any]:
         runtime["mps_available"] = bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
         if torch.cuda.is_available():
             runtime["accelerator"] = "cuda"
+            try:
+                props = torch.cuda.get_device_properties(0)
+                runtime["cuda_total_memory_gb"] = round(props.total_memory / (1024**3), 2)
+                runtime["cuda_compute_capability"] = f"{props.major}.{props.minor}"
+            except Exception:
+                pass
             runtime["bf16_supported"] = bool(
                 hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
             )
@@ -207,6 +215,24 @@ def get_tpu_memory_info() -> dict[str, Any] | None:
         info = xm.get_memory_info(device)
         total_bytes = info.get("kb_total", 0) * 1024
         free_bytes = info.get("kb_free", 0) * 1024
+        used_bytes = total_bytes - free_bytes
+        return {
+            "total_gb": round(total_bytes / (1024**3), 2),
+            "used_gb": round(used_bytes / (1024**3), 2),
+            "free_gb": round(free_bytes / (1024**3), 2),
+            "utilization_pct": round((used_bytes / max(total_bytes, 1)) * 100, 1),
+        }
+    except Exception:
+        return None
+
+
+def get_gpu_memory_info(device_index: int = 0) -> dict[str, Any] | None:
+    """Get CUDA GPU memory usage information. Returns None if CUDA is unavailable."""
+    if torch is None or not torch.cuda.is_available():
+        return None
+
+    try:
+        free_bytes, total_bytes = torch.cuda.mem_get_info(device_index)
         used_bytes = total_bytes - free_bytes
         return {
             "total_gb": round(total_bytes / (1024**3), 2),

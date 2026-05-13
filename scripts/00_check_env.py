@@ -35,6 +35,7 @@ def main() -> None:
             "accelerate",
             "peft",
             "trl",
+            "bitsandbytes",
             "fastapi",
             "uvicorn",
             "tensorboard",

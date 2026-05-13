@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import time
 from pathlib import Path
 import sys
@@ -10,9 +9,6 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-# Ensure PJRT_DEVICE is set before any torch_xla import — critical for TPU v5e.
-os.environ.setdefault("PJRT_DEVICE", "TPU")
 
 from datasets import load_dataset
 from peft import LoraConfig, prepare_model_for_kbit_training
@@ -24,6 +20,7 @@ from src.train_utils import (
     detect_runtime,
     ensure_dir,
     format_duration,
+    get_gpu_memory_info,
     get_system_prompt,
     get_tpu_memory_info,
     load_config,
@@ -31,12 +28,13 @@ from src.train_utils import (
     save_json,
     seed_everything,
     setup_logging,
+    supports_4bit_quantization,
     write_text,
 )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train the physics chatbot with LoRA on TPU/GPU/CPU.")
+    parser = argparse.ArgumentParser(description="Train the physics chatbot with QLoRA on CUDA or LoRA fallback.")
     parser.add_argument("--config", default="config.yaml", help="Path to the YAML config file.")
     parser.add_argument("--resume-from-checkpoint", default=None, help="Optional checkpoint path to resume from.")
     parser.add_argument("--train-path", default=None, help="Optional override for the train split JSONL.")
@@ -51,25 +49,47 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_peft_config(config: dict) -> LoraConfig:
+    target_modules = config.get("target_modules", [])
+    if isinstance(target_modules, str):
+        normalized_target_modules = target_modules
+    else:
+        normalized_target_modules = list(target_modules)
     return LoraConfig(
         r=int(config.get("lora_r", 32)),
         lora_alpha=int(config.get("lora_alpha", 64)),
         lora_dropout=float(config.get("lora_dropout", 0.05)),
-        target_modules=list(config.get("target_modules", [])),
+        target_modules=normalized_target_modules,
         bias="none",
         task_type="CAUSAL_LM",
     )
 
 
-def _log_tpu_memory(logger, label: str = "") -> None:
-    """Log TPU HBM memory usage if running on TPU."""
-    mem = get_tpu_memory_info()
-    if mem:
-        prefix = f"[{label}] " if label else ""
-        logger.info(
-            "%sTPU Memory: %.2f GB used / %.2f GB total (%.1f%% utilization)",
-            prefix, mem["used_gb"], mem["total_gb"], mem["utilization_pct"],
-        )
+def _log_accelerator_memory(logger, runtime: dict, label: str = "") -> None:
+    """Log accelerator memory usage when available."""
+    prefix = f"[{label}] " if label else ""
+
+    if runtime.get("accelerator") == "cuda":
+        mem = get_gpu_memory_info()
+        if mem:
+            logger.info(
+                "%sGPU Memory: %.2f GB used / %.2f GB total (%.1f%% utilization)",
+                prefix,
+                mem["used_gb"],
+                mem["total_gb"],
+                mem["utilization_pct"],
+            )
+        return
+
+    if runtime.get("accelerator") == "tpu":
+        mem = get_tpu_memory_info()
+        if mem:
+            logger.info(
+                "%sTPU Memory: %.2f GB used / %.2f GB total (%.1f%% utilization)",
+                prefix,
+                mem["used_gb"],
+                mem["total_gb"],
+                mem["utilization_pct"],
+            )
 
 
 def _find_latest_checkpoint(output_dir: Path) -> str | None:
@@ -85,7 +105,7 @@ def main() -> None:
     args = parse_args()
     config = load_config(PROJECT_ROOT / args.config)
     log_dir = resolve_path(PROJECT_ROOT, config.get("log_dir", "outputs/logs"))
-    logger = setup_logging("train_tpu", log_file=log_dir / "train_tpu.log")
+    logger = setup_logging("train_accelerator", log_file=log_dir / "train.log")
 
     runtime = detect_runtime()
     seed_everything(int(config.get("seed", 42)))
@@ -100,9 +120,16 @@ def main() -> None:
     training_mode = str(config.get("training_mode", "lora")).lower()
     if training_mode == "full" and not config.get("enable_full_finetune", False):
         raise ValueError("Full fine-tuning is disabled by default. Set enable_full_finetune=true to allow it.")
-    if runtime.get("accelerator") == "tpu" and training_mode == "qlora":
-        logger.warning("TPU detected. QLoRA is not supported on TPU, so the run will fall back to standard LoRA.")
+
+    qlora_supported = supports_4bit_quantization(base_model, runtime)
+    if training_mode == "qlora" and not qlora_supported:
+        logger.warning(
+            "QLoRA requested but unavailable on accelerator=%s for model=%s. Falling back to standard LoRA.",
+            runtime.get("accelerator"),
+            base_model,
+        )
         training_mode = "lora"
+    use_4bit = bool(config.get("load_in_4bit", False) and training_mode == "qlora" and qlora_supported)
 
     train_path = resolve_path(PROJECT_ROOT, args.train_path or config.get("train_split_path", "data/final/train.jsonl"))
     eval_path = resolve_path(PROJECT_ROOT, args.eval_path or config.get("validation_split_path", "data/final/validation.jsonl"))
@@ -126,14 +153,22 @@ def main() -> None:
     logger.info("Train path: %s", train_path)
     logger.info("Eval path: %s", eval_path)
 
-    _log_tpu_memory(logger, "Before model load")
+    if runtime.get("accelerator") == "cuda":
+        logger.info(
+            "CUDA device: %s | memory=%s GB | compute capability=%s",
+            runtime.get("cuda_device_name"),
+            runtime.get("cuda_total_memory_gb"),
+            runtime.get("cuda_compute_capability"),
+        )
+
+    _log_accelerator_memory(logger, runtime, "Before model load")
 
     tokenizer = load_tokenizer_for_model(base_model, trust_remote_code=bool(config.get("trust_remote_code", True)))
     model, runtime = load_base_model(
         base_model,
         trust_remote_code=bool(config.get("trust_remote_code", True)),
         prefer_bf16=bool(config.get("bf16", True)),
-        load_in_4bit=bool(config.get("load_in_4bit", False) and training_mode == "qlora"),
+        load_in_4bit=use_4bit,
         logger=logger,
     )
     if training_mode == "qlora":
@@ -142,7 +177,7 @@ def main() -> None:
     if getattr(model.config, "use_cache", None) is not None:
         model.config.use_cache = False
 
-    _log_tpu_memory(logger, "After model load")
+    _log_accelerator_memory(logger, runtime, "After model load")
 
     # Count trainable parameters
     total_params = sum(p.numel() for p in model.parameters())
@@ -172,12 +207,24 @@ def main() -> None:
     final_adapter_dir = ensure_dir(adapter_dir / "final")
     ensure_dir(output_dir)
 
-    # Determine optimizer — adafactor for TPU (no extra state memory), adamw_torch for GPU
-    optimizer_name = "adafactor" if runtime.get("accelerator") == "tpu" else "adamw_torch"
+    # Determine optimizer based on runtime and quantization mode.
+    if runtime.get("accelerator") == "cuda" and training_mode == "qlora":
+        optimizer_name = "paged_adamw_8bit"
+    elif runtime.get("accelerator") == "tpu":
+        optimizer_name = "adafactor"
+    else:
+        optimizer_name = "adamw_torch"
     logger.info("Optimizer: %s", optimizer_name)
 
     # Determine LR scheduler type from config
     lr_scheduler_type = str(config.get("lr_scheduler_type", "cosine"))
+
+    bf16_enabled = bool(config.get("bf16", True) and runtime.get("bf16_supported", False))
+    fp16_enabled = bool(
+        config.get("fp16", True)
+        and runtime.get("accelerator") == "cuda"
+        and not bf16_enabled
+    )
 
     training_args = SFTConfig(
         output_dir=str(output_dir),
@@ -194,8 +241,8 @@ def main() -> None:
         save_strategy="steps",
         evaluation_strategy="steps",
         lr_scheduler_type=lr_scheduler_type,
-        bf16=bool(config.get("bf16", True) and runtime.get("bf16_supported", False)),
-        fp16=False,
+        bf16=bf16_enabled,
+        fp16=fp16_enabled,
         gradient_checkpointing=bool(config.get("gradient_checkpointing", True)),
         max_grad_norm=float(config.get("max_grad_norm", 1.0)),
         report_to=["tensorboard"],
@@ -244,7 +291,8 @@ def main() -> None:
         frozen = sum(p.numel() for p in trainer.model.parameters() if not p.requires_grad)
         logger.info("Trainable parameters: %s (%.4f%% of total)", f"{trainable:,}", 100.0 * trainable / max(trainable + frozen, 1))
 
-    _log_tpu_memory(logger, "Before training")
+    logger.info("Precision: bf16=%s fp16=%s 4bit=%s", bf16_enabled, fp16_enabled, use_4bit)
+    _log_accelerator_memory(logger, runtime, "Before training")
 
     # Auto-resume: check for existing checkpoints if no explicit resume path given
     resume_checkpoint = args.resume_from_checkpoint
@@ -274,7 +322,7 @@ def main() -> None:
     train_elapsed = time.time() - train_start
     logger.info("Training completed in %s", format_duration(train_elapsed))
 
-    _log_tpu_memory(logger, "After training")
+    _log_accelerator_memory(logger, runtime, "After training")
 
     trainer.save_model(str(final_adapter_dir))
     tokenizer.save_pretrained(str(final_adapter_dir))
@@ -289,6 +337,9 @@ def main() -> None:
     metrics["max_seq_length"] = int(config.get("max_seq_length", 1024))
     metrics["effective_batch_size"] = int(config.get("train_batch_size", 1)) * int(config.get("gradient_accumulation_steps", 8))
     metrics["configured_num_train_epochs"] = effective_num_train_epochs
+    metrics["load_in_4bit"] = use_4bit
+    metrics["bf16"] = bf16_enabled
+    metrics["fp16"] = fp16_enabled
 
     save_json(metrics, log_dir / "train_metrics.json")
     write_text(
@@ -301,6 +352,8 @@ def main() -> None:
                 f"- Accelerator: `{runtime.get('accelerator')}`",
                 f"- LoRA rank: `{config.get('lora_r')}`, alpha: `{config.get('lora_alpha')}`",
                 f"- Max sequence length: `{config.get('max_seq_length')}`",
+                f"- Quantized base model: `{use_4bit}`",
+                f"- Precision: `bf16={bf16_enabled}, fp16={fp16_enabled}`",
                 f"- Effective batch size: `{metrics['effective_batch_size']}`",
                 f"- Learning rate: `{config.get('learning_rate')}` ({lr_scheduler_type})",
                 f"- Training duration: `{format_duration(train_elapsed)}`",

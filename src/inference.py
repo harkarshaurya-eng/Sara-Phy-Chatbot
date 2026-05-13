@@ -4,7 +4,13 @@ from pathlib import Path
 from typing import Any
 
 from src.formatting import messages_to_text, strip_thinking_tokens
-from src.train_utils import default_dtype, detect_runtime, get_system_prompt, model_architecture_hint
+from src.train_utils import (
+    default_dtype,
+    detect_runtime,
+    get_system_prompt,
+    model_architecture_hint,
+    supports_4bit_quantization,
+)
 
 try:
     import torch
@@ -32,7 +38,7 @@ def load_tokenizer_for_model(model_name_or_path: str, trust_remote_code: bool = 
     return tokenizer
 
 
-def _build_quantization_config():
+def _build_quantization_config(runtime: dict[str, Any]):
     try:
         from transformers import BitsAndBytesConfig
     except Exception as exc:
@@ -41,11 +47,15 @@ def _build_quantization_config():
             "Install bitsandbytes on a CUDA machine or switch training_mode to 'lora'."
         ) from exc
 
+    compute_dtype = default_dtype(runtime, prefer_bf16=True)
+    if compute_dtype is None and torch is not None:
+        compute_dtype = torch.float16
+
     return BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.bfloat16 if torch is not None else None,
+        bnb_4bit_compute_dtype=compute_dtype,
     )
 
 
@@ -71,10 +81,17 @@ def load_base_model(
     }
 
     if load_in_4bit:
-        if runtime.get("accelerator") != "cuda" or architecture != "causal_lm":
-            raise RuntimeError("4-bit QLoRA loading is only supported on CUDA with text-only causal LM checkpoints.")
-        model_kwargs["quantization_config"] = _build_quantization_config()
-        model_kwargs["device_map"] = "auto"
+        if not supports_4bit_quantization(model_name_or_path, runtime):
+            if logger:
+                logger.warning(
+                    "4-bit loading requested for %s, but runtime/model combination is unsupported. "
+                    "Continuing without quantization.",
+                    model_name_or_path,
+                )
+            load_in_4bit = False
+        else:
+            model_kwargs["quantization_config"] = _build_quantization_config(runtime)
+            model_kwargs["device_map"] = "auto"
     elif runtime.get("accelerator") == "cuda":
         model_kwargs["device_map"] = "auto"
 

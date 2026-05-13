@@ -33,6 +33,7 @@ class ModelRunner:
         adapter_path: str | None = None,
         merged_model_path: str | None = None,
         trust_remote_code: bool = True,
+        load_in_4bit: bool = False,
         logger=None,
     ) -> None:
         self.base_model = base_model
@@ -44,6 +45,7 @@ class ModelRunner:
             adapter_path=adapter_path,
             merged_model_path=merged_model_path,
             trust_remote_code=trust_remote_code,
+            load_in_4bit=load_in_4bit,
             logger=logger,
         )
 
@@ -67,6 +69,7 @@ def create_app(
     adapter_path: str | None = None,
     merged_model_path: str | None = None,
     trust_remote_code: bool = True,
+    load_in_4bit: bool = False,
     logger=None,
 ) -> FastAPI:
     runner = ModelRunner(
@@ -76,6 +79,7 @@ def create_app(
         adapter_path=adapter_path,
         merged_model_path=merged_model_path,
         trust_remote_code=trust_remote_code,
+        load_in_4bit=load_in_4bit,
         logger=logger,
     )
 

@@ -1,145 +1,135 @@
-# Google Colab TPU v5e-1 Training Guide
+# Google Colab T4 Training Guide
 
-## BEFORE YOU OPEN COLAB
+## Before You Open Colab
 
-1. If you keep the default `Qwen/Qwen3-4B`, no extra model approval is required
-2. Copy your HuggingFace token from https://huggingface.co/settings/tokens
-3. Upload the `physics-chatbot-finetune` folder to your Google Drive root
+1. Keep the default `Qwen/Qwen3-4B` unless you have a reason to switch
+2. Copy your Hugging Face token from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+3. Clone or upload `physics-chatbot-finetune`
+4. If you switch to gated models such as Gemma or Llama, accept their licenses on Hugging Face first
 
-Default model note:
-- The repo now defaults to `Qwen/Qwen3-4B`, so step 1 is only needed if you manually switch back to Gemma or to gated Llama checkpoints.
+## Colab Setup
 
----
+1. Open [colab.research.google.com](https://colab.research.google.com)
+2. Click `Runtime > Change runtime type > GPU`
+3. Save and wait for the session to reconnect
+4. Run these cells one by one
 
-## COLAB SETUP
-
-1. Open https://colab.research.google.com
-2. Click **Runtime > Change runtime type > TPU** (pick v5e-1)
-3. Click Save
-4. Paste and run these cells one by one:
-
----
-
-## CELL 1 — Mount Drive
+## Cell 1 - Clone The Repo
 
 ```python
-from google.colab import drive
-drive.mount('/content/drive')
-```
-
-## CELL 2 — Go to project folder
-
-```python
-import os
-os.chdir('/content/drive/MyDrive/physics-chatbot-finetune')
+%cd /content
+!rm -rf Sara-Phy-Chatbot
+!git clone https://github.com/harkarshaurya-eng/Sara-Phy-Chatbot.git
+%cd /content/Sara-Phy-Chatbot
 !ls
 ```
 
-## CELL 3 — Install packages
+## Cell 2 - Install Packages
 
 ```python
-!pip install --upgrade pip -q
-!pip install -r requirements_tpu.txt -q 2>&1 | tail -3
+!python -m pip install --upgrade pip -q
+!pip install -r requirements.txt
 ```
 
-## CELL 4 — Check TPU works
+## Cell 3 - Verify GPU
 
 ```python
-import os
-os.environ['PJRT_DEVICE'] = 'TPU'
+!nvidia-smi
+```
 
+```python
 import torch
-import torch_xla.core.xla_model as xm
-
-device = xm.xla_device()
-print(f"TPU OK: {device} / {xm.xla_device_hw(device)}")
+print("CUDA available:", torch.cuda.is_available())
+print("GPU:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU detected")
 ```
 
-## CELL 5 — Login to HuggingFace
+If this does not show a CUDA GPU, stop and switch the runtime again before training.
+
+## Cell 4 - Login To Hugging Face
 
 ```python
 from huggingface_hub import login
 login()
 ```
 
-Paste your token when asked.
+## Cell 5 - Check The Environment
 
-## CELL 6 — Download datasets
+```python
+!python scripts/00_check_env.py --config config.yaml
+```
+
+## Cell 6 - Download Datasets
 
 ```python
 !python scripts/01_download_datasets.py --config config.yaml
 ```
 
-## CELL 7 — Prepare training data
+## Cell 7 - Prepare Training Data
 
 ```python
 !python scripts/02_prepare_dataset.py --config config.yaml
 ```
 
-## CELL 8 — START TRAINING
+## Cell 8 - Start Training
+
+```python
+!python scripts/03_train_tpu.py --config config.yaml --num-train-epochs 30
+```
+
+The script name is kept for compatibility, but the default config now targets Colab T4 with QLoRA.
+
+## Cell 9 - Save Outputs To Drive
+
+```python
+from google.colab import drive
+drive.mount('/content/drive')
+```
 
 ```python
 import os
-os.environ['PJRT_DEVICE'] = 'TPU'
-!python scripts/03_train_tpu.py --config config.yaml
-```
+import shutil
 
-Training takes 30 min to 2 hours depending on dataset size.
-If Colab disconnects, re-run from Cell 1 — it auto-resumes.
-
-## CELL 9 — Save to Drive
-
-```python
-import shutil, os
-dst = '/content/drive/MyDrive/physics-chatbot-exports'
+dst = "/content/drive/MyDrive/physics-chatbot-exports"
 os.makedirs(dst, exist_ok=True)
-shutil.copytree('outputs/adapters/final', f'{dst}/adapter_final', dirs_exist_ok=True)
-print(f"SAVED to {dst}/adapter_final")
+shutil.copytree("outputs/adapters/final", f"{dst}/adapter_final", dirs_exist_ok=True)
+for name in ["train_metrics.json", "train_summary.md", "data_report.md"]:
+    src = f"outputs/logs/{name}"
+    if os.path.exists(src):
+        shutil.copy2(src, f"{dst}/{name}")
+print(f"Saved artifacts to {dst}")
 ```
 
-## CELL 10 — Test it
+## Cell 10 - Quick Smoke Test
 
 ```python
-import sys; sys.path.insert(0, '.')
+import sys
+sys.path.insert(0, ".")
+
 from src.inference import load_chat_model, generate_chat_response
 from src.train_utils import load_config, get_system_prompt
 
-config = load_config('config.yaml')
+config = load_config("config.yaml")
 model, tokenizer, runtime = load_chat_model(
-    base_model_name=config['base_model'],
-    adapter_path='outputs/adapters/final',
+    base_model_name=config["base_model"],
+    adapter_path="outputs/adapters/final",
     trust_remote_code=True,
+    load_in_4bit=bool(config.get("load_in_4bit", False)),
 )
 result = generate_chat_response(
-    model=model, tokenizer=tokenizer,
-    model_name=config['base_model'],
-    messages=[{'role': 'user', 'content': "Explain Newton's second law."}],
-    temperature=0.7, max_new_tokens=256,
+    model=model,
+    tokenizer=tokenizer,
+    model_name=config["base_model"],
+    messages=[{"role": "user", "content": "Explain Newton's second law."}],
+    temperature=0.7,
+    max_new_tokens=256,
     system_prompt=get_system_prompt(config),
 )
-print(result['text'])
+print(result["text"])
 ```
 
----
+## Common Fixes
 
-## AFTER TRAINING — On your local machine
-
-Chat with the model:
-```bash
-python scripts/05_chat_cli.py --config config.yaml --adapter outputs/adapters/final
-```
-
-Serve as API:
-```bash
-python scripts/06_serve_openai_api.py --config config.yaml --adapter outputs/adapters/final
-```
-
-Merge adapter (optional):
-```bash
-python scripts/04_merge_adapter.py --config config.yaml --adapter outputs/adapters/final --output-dir outputs/merged_model
-```
-
-Run evaluation:
-```bash
-python scripts/07_eval_physics.py --config config.yaml --adapter outputs/adapters/final
-```
+- If `CUDA available` is `False`, you are not on a GPU runtime yet
+- If `bitsandbytes` fails to import, reinstall `requirements.txt` and restart the runtime
+- If training is too slow, lower `max_samples_per_dataset` or `num_train_epochs` for the first run
+- If you run out of memory, reduce `max_seq_length` or keep the default `Qwen/Qwen3-4B`

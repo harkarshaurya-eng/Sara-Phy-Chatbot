@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import re
 import statistics
 import sys
@@ -109,6 +110,45 @@ def token_f1(prediction: str, reference: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
+NUMBER_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
+
+
+def extract_numeric_candidates(text: str) -> list[float]:
+    values: list[float] = []
+    for match in NUMBER_RE.findall(text.replace(",", "")):
+        try:
+            values.append(float(match))
+        except ValueError:
+            continue
+    return values
+
+
+def extract_scalar_target(text: str) -> float | None:
+    values = extract_numeric_candidates(text)
+    if not values:
+        return None
+    return values[-1]
+
+
+def compute_numeric_regression_metrics(rows: list[dict]) -> dict | None:
+    if not rows:
+        return None
+
+    actual_values = [row["reference_value"] for row in rows]
+    predicted_values = [row["prediction_value"] for row in rows]
+    mean_actual = statistics.mean(actual_values)
+    squared_errors = [(pred - actual) ** 2 for pred, actual in zip(predicted_values, actual_values)]
+    absolute_errors = [abs(pred - actual) for pred, actual in zip(predicted_values, actual_values)]
+    denominator = sum(abs(actual - mean_actual) for actual in actual_values)
+
+    return {
+        "count": len(rows),
+        "rmse": math.sqrt(sum(squared_errors) / len(squared_errors)),
+        "mae": sum(absolute_errors) / len(absolute_errors),
+        "rae": (sum(absolute_errors) / denominator) if denominator > 0 else 0.0,
+    }
+
+
 def extract_user_and_reference(example: dict) -> tuple[str, str]:
     user_text = ""
     assistant_text = ""
@@ -147,6 +187,7 @@ def main() -> None:
     held_out_rows = read_jsonl(test_split_path)[: args.max_samples] if test_split_path.exists() else []
 
     held_out_scores = []
+    numeric_scores = []
     for row in held_out_rows:
         user_text, reference_text = extract_user_and_reference(row)
         if not user_text or not reference_text:
@@ -171,6 +212,18 @@ def main() -> None:
                 "token_f1": score,
             }
         )
+        reference_value = extract_scalar_target(reference_text)
+        prediction_value = extract_scalar_target(result["text"])
+        if reference_value is not None and prediction_value is not None:
+            numeric_scores.append(
+                {
+                    "topic": row.get("topic", "general physics"),
+                    "prompt": user_text,
+                    "reference_value": reference_value,
+                    "prediction_value": prediction_value,
+                    "absolute_error": abs(prediction_value - reference_value),
+                }
+            )
 
     probe_results = []
     for probe in DOMAIN_PROBES:
@@ -198,6 +251,7 @@ def main() -> None:
 
     held_out_mean = statistics.mean(row["token_f1"] for row in held_out_scores) if held_out_scores else 0.0
     probe_mean = statistics.mean(row["coverage"] for row in probe_results) if probe_results else 0.0
+    numeric_metrics = compute_numeric_regression_metrics(numeric_scores)
     report_lines = [
         "# Physics Evaluation Report",
         f"- Base model: `{base_model}`",
@@ -205,6 +259,10 @@ def main() -> None:
         f"- Held-out sample count: `{len(held_out_scores)}`",
         f"- Mean held-out token F1: `{held_out_mean:.4f}`",
         f"- Mean domain probe coverage: `{probe_mean:.4f}`",
+        f"- Numeric subset count: `{numeric_metrics['count'] if numeric_metrics else 0}`",
+        f"- Numeric RMSE: `{numeric_metrics['rmse']:.6f}`" if numeric_metrics else "- Numeric RMSE: `n/a`",
+        f"- Numeric RAE: `{numeric_metrics['rae']:.6f}`" if numeric_metrics else "- Numeric RAE: `n/a`",
+        f"- Numeric MAE: `{numeric_metrics['mae']:.6f}`" if numeric_metrics else "- Numeric MAE: `n/a`",
         "",
         "## Held-Out Sample Scores",
     ]
@@ -233,6 +291,34 @@ def main() -> None:
                 f"- Keyword coverage: {row['coverage']:.4f}",
                 f"- Matched keywords: {', '.join(row['matched']) if row['matched'] else 'none'}",
                 f"- Response excerpt: {row['response']}",
+                "",
+            ]
+        )
+
+    report_lines.append("## Numeric Regression Metrics")
+    if numeric_metrics:
+        report_lines.extend(
+            [
+                "RMSE and RAE are computed only on held-out examples where both the reference and generated answer contain at least one numeric value.",
+                "The evaluator uses the last numeric value in each text as a scalar target. This is a practical heuristic for final-answer style physics problems, not a full symbolic grader.",
+                "",
+            ]
+        )
+        for row in numeric_scores[: min(10, len(numeric_scores))]:
+            report_lines.extend(
+                [
+                    f"### {row['topic']}",
+                    f"- Prompt: {row['prompt']}",
+                    f"- Reference value: {row['reference_value']}",
+                    f"- Prediction value: {row['prediction_value']}",
+                    f"- Absolute error: {row['absolute_error']}",
+                    "",
+                ]
+            )
+    else:
+        report_lines.extend(
+            [
+                "No numeric subset could be extracted from the evaluated samples, so RMSE and RAE were not computed.",
                 "",
             ]
         )

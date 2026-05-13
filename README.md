@@ -197,6 +197,16 @@ This creates:
 python scripts/03_train_tpu.py --config config.yaml
 ```
 
+The default config is now set to `30` training epochs. You can override that from the command line too:
+
+```bash
+python scripts/03_train_tpu.py --config config.yaml --num-train-epochs 30
+```
+
+Note:
+
+- `early_stopping_patience` is still enabled in `config.yaml`, so training may stop before epoch 30 if validation loss stops improving.
+
 This saves the final adapter to:
 
 ```text
@@ -337,6 +347,7 @@ The evaluation script does three simple things:
 
 - scores held-out dataset responses with a lightweight token-overlap F1
 - checks built-in probe prompts across physics domains
+- computes RMSE and RAE on the numeric-answer subset of held-out examples
 - saves a qualitative grading template for optional manual review
 
 ## Safety And Legal Notes

@@ -41,6 +41,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume-from-checkpoint", default=None, help="Optional checkpoint path to resume from.")
     parser.add_argument("--train-path", default=None, help="Optional override for the train split JSONL.")
     parser.add_argument("--eval-path", default=None, help="Optional override for the validation split JSONL.")
+    parser.add_argument(
+        "--num-train-epochs",
+        type=float,
+        default=None,
+        help="Optional override for the number of training epochs.",
+    )
     return parser.parse_args()
 
 
@@ -105,6 +111,8 @@ def main() -> None:
     if not eval_path.exists():
         raise FileNotFoundError(f"Validation split not found: {eval_path}. Run scripts/02_prepare_dataset.py first.")
 
+    effective_num_train_epochs = float(args.num_train_epochs or config.get("num_train_epochs", 30))
+
     # Log configuration summary
     logger.info("Base model: %s", base_model)
     logger.info("Training mode: %s", training_mode)
@@ -114,7 +122,7 @@ def main() -> None:
                 config.get("train_batch_size"), config.get("gradient_accumulation_steps"),
                 int(config.get("train_batch_size", 1)) * int(config.get("gradient_accumulation_steps", 8)))
     logger.info("Learning rate: %s, Scheduler: %s", config.get("learning_rate"), config.get("lr_scheduler_type", "cosine"))
-    logger.info("Epochs: %s, Warmup ratio: %s", config.get("num_train_epochs"), config.get("warmup_ratio"))
+    logger.info("Epochs: %s, Warmup ratio: %s", effective_num_train_epochs, config.get("warmup_ratio"))
     logger.info("Train path: %s", train_path)
     logger.info("Eval path: %s", eval_path)
 
@@ -177,7 +185,7 @@ def main() -> None:
         per_device_eval_batch_size=int(config.get("eval_batch_size", 1)),
         gradient_accumulation_steps=int(config.get("gradient_accumulation_steps", 8)),
         learning_rate=float(config.get("learning_rate", 1e-4)),
-        num_train_epochs=float(config.get("num_train_epochs", 3)),
+        num_train_epochs=effective_num_train_epochs,
         warmup_ratio=float(config.get("warmup_ratio", 0.06)),
         weight_decay=float(config.get("weight_decay", 0.01)),
         logging_steps=int(config.get("logging_steps", 5)),
@@ -280,6 +288,7 @@ def main() -> None:
     metrics["lora_alpha"] = int(config.get("lora_alpha", 64))
     metrics["max_seq_length"] = int(config.get("max_seq_length", 1024))
     metrics["effective_batch_size"] = int(config.get("train_batch_size", 1)) * int(config.get("gradient_accumulation_steps", 8))
+    metrics["configured_num_train_epochs"] = effective_num_train_epochs
 
     save_json(metrics, log_dir / "train_metrics.json")
     write_text(

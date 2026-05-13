@@ -60,7 +60,7 @@ validation_split_path: "data/final/validation.jsonl"
 test_split_path: "data/final/test.jsonl"
 
 # Dataset processing limits and filters.
-max_samples_per_dataset: 25000
+max_samples_per_dataset: 50000
 min_answer_chars: 40
 min_question_chars: 10
 min_text_chunk_chars: 300
@@ -99,7 +99,7 @@ datasets:
     config_name: null
     split: "train"
     streaming: true
-    max_samples: 20000
+    max_samples: 40000
     url: "https://huggingface.co/datasets/convaiinnovations/physics-reasoning-dataset"
     license: "apache-2.0"
     citation: "convaiinnovations/physics-reasoning-dataset on Hugging Face"
@@ -115,7 +115,7 @@ datasets:
     config_name: null
     split: "train"
     streaming: true
-    max_samples: 12000
+    max_samples: 25000
     url: "https://huggingface.co/datasets/allenai/sciq"
     license: "cc-by-nc-3.0"
     citation: "SciQ: Crowdsourced Multiple Choice Science Questions"
@@ -144,7 +144,7 @@ datasets:
     config_name: null
     split: "train"
     streaming: true
-    max_samples: 12000
+    max_samples: 25000
     url: "https://huggingface.co/datasets/derek-thomas/ScienceQA"
     license: "cc-by-sa-4.0"
     citation: "ScienceQA: Learn to Explain Question Answering"
@@ -175,6 +175,58 @@ datasets:
       - "nuclear"
       - "astrophysics"
 
+  - name: "ai2_arc_physics_hf"
+    type: "hf"
+    enabled: true
+    dataset_id: "allenai/ai2_arc"
+    config_names:
+      - "ARC-Challenge"
+      - "ARC-Easy"
+    split: "train"
+    streaming: true
+    max_samples: 12000
+    url: "https://huggingface.co/datasets/allenai/ai2_arc"
+    license: "cc-by-sa-4.0"
+    citation: "AI2 Reasoning Challenge (ARC)"
+    question_fields: ["question"]
+    choice_field: "choices"
+    answer_index_field: "answerKey"
+    topic_hint: "general physics"
+    filter_keywords:
+      - "force"
+      - "energy"
+      - "mass"
+      - "velocity"
+      - "acceleration"
+      - "electric"
+      - "magnetic"
+      - "wave"
+      - "optics"
+      - "thermo"
+      - "quantum"
+      - "gravity"
+      - "nuclear"
+      - "relativity"
+      - "astronomy"
+
+  - name: "physicseval_hf"
+    type: "hf"
+    enabled: true
+    dataset_id: "IUTVanguard/PhysicsEval"
+    config_name: null
+    split: "train"
+    streaming: true
+    max_samples: 18000
+    url: "https://huggingface.co/datasets/IUTVanguard/PhysicsEval"
+    license: "cc-by-sa-4.0"
+    citation: "PhysicsEval: physics reasoning dataset from textbooks and verified educational websites"
+    question_fields: ["problem", "simplified_problem_statement"]
+    answer_fields: ["elaborated_solution_steps"]
+    support_fields: ["final_answers_in_brief", "alternative_solutions"]
+    title_fields: ["category", "source"]
+    difficulty_field: "problem_difficulty"
+    topic_hint: "general physics"
+
   - name: "ugphysics_hf"
     type: "hf"
     enabled: true
@@ -195,7 +247,7 @@ datasets:
       - "WaveOptics"
     split: "en"
     streaming: true
-    max_samples: 18000
+    max_samples: 40000
     url: "https://huggingface.co/datasets/UGPhysics/ugphysics"
     license: "cc-by-nc-sa-4.0"
     citation: "UGPhysics undergraduate physics problem dataset"
@@ -213,7 +265,7 @@ datasets:
     config_name: null
     split: "train"
     streaming: true
-    max_samples: 10000
+    max_samples: 25000
     url: "https://huggingface.co/datasets/mhla/gpt1900-physics-clm"
     license: "mit"
     citation: "GPT-1900 Physics CLM Data"
@@ -228,10 +280,30 @@ datasets:
     config_name: null
     split: "train"
     streaming: false
-    max_samples: 12000
+    max_samples: 25000
     url: "https://huggingface.co/datasets/OpenAssistant/oasst1"
     license: "apache-2.0"
     citation: "OpenAssistant Conversations Dataset (OASST1)"
+    language_field: "lang"
+    allowed_languages:
+      - "en"
+    message_role_map:
+      prompter: "user"
+      assistant: "assistant"
+    max_messages_per_example: 8
+    topic_hint: "general physics"
+
+  - name: "openassistant_oasst2"
+    type: "hf_oasst_tree"
+    enabled: true
+    dataset_id: "OpenAssistant/oasst2"
+    config_name: null
+    split: "train"
+    streaming: false
+    max_samples: 30000
+    url: "https://huggingface.co/datasets/OpenAssistant/oasst2"
+    license: "apache-2.0"
+    citation: "OpenAssistant Conversations Dataset (OASST2)"
     language_field: "lang"
     allowed_languages:
       - "en"
@@ -248,7 +320,7 @@ datasets:
     config_name: null
     split: "train_sft"
     streaming: true
-    max_samples: 18000
+    max_samples: 40000
     url: "https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k"
     license: "mit"
     citation: "UltraChat 200k"
@@ -262,7 +334,7 @@ datasets:
     config_name: null
     split: "train"
     streaming: true
-    max_samples: 18000
+    max_samples: 40000
     url: "https://huggingface.co/datasets/Open-Orca/SlimOrca-Dedup"
     license: "mit"
     citation: "SlimOrca Dedup"
@@ -294,8 +366,8 @@ datasets:
 
   - name: "arxiv_physics_abstracts"
     type: "arxiv"
-    enabled: false
-    max_samples: 8000
+    enabled: true
+    max_samples: 15000
     url: "http://export.arxiv.org/api/query"
     license: "per-paper-open-license-only"
     citation: "arXiv API metadata feed"
@@ -310,7 +382,7 @@ datasets:
 
   - name: "openstax_college_physics"
     type: "openstax"
-    enabled: false
+    enabled: true
     url: "https://openstax.org/details/books/college-physics-2e"
     license: "CC BY 4.0"
     citation: "OpenStax College Physics 2e"
@@ -318,7 +390,7 @@ datasets:
 
   - name: "gutenberg_physics_text"
     type: "gutenberg"
-    enabled: false
+    enabled: true
     url: "https://www.gutenberg.org/ebooks/12241"
     license: "Public domain"
     citation: "Project Gutenberg public-domain physics text"

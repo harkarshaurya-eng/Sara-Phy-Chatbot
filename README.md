@@ -100,10 +100,12 @@ The pipeline supports:
 
 The default config already wires in a larger mixed curriculum:
 
-- Physics and science: `convaiinnovations/physics-reasoning-dataset`, `allenai/sciq`, `derek-thomas/ScienceQA`, `UGPhysics/ugphysics`, `mhla/gpt1900-physics-clm`
-- Conversational alignment: `OpenAssistant/oasst1`, `HuggingFaceH4/ultrachat_200k`, `Open-Orca/SlimOrca-Dedup`, `databricks/databricks-dolly-15k`
+- Physics and science: `convaiinnovations/physics-reasoning-dataset`, `allenai/sciq`, `derek-thomas/ScienceQA`, `allenai/ai2_arc`, `IUTVanguard/PhysicsEval`, `UGPhysics/ugphysics`, `mhla/gpt1900-physics-clm`
+- Conversational alignment: `OpenAssistant/oasst1`, `OpenAssistant/oasst2`, `HuggingFaceH4/ultrachat_200k`, `Open-Orca/SlimOrca-Dedup`, `databricks/databricks-dolly-15k`
 
 Raw corpora are downloaded on demand into `data/raw/`; they are not committed into the repository because they are large and license-sensitive.
+
+Some attractive physics corpora are still intentionally left out by default when they are image-only, missing a clear machine-readable license on Hugging Face, or would require a separate multimodal pipeline. This repo favors sources that can be safely downloaded, attributed, and converted into text/chat supervision.
 
 Every configured source has:
 

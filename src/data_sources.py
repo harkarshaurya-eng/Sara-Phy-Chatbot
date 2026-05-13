@@ -212,14 +212,73 @@ def _normalize_message_list(raw_messages: Any, source: DatasetSource) -> list[di
     return normalized
 
 
+def _extract_choice_entries(raw_choices: Any) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    if isinstance(raw_choices, list):
+        for index, choice in enumerate(raw_choices):
+            default_label = chr(ord("A") + index)
+            if isinstance(choice, dict):
+                label = _normalize_scalar(choice.get("label") or choice.get("key") or default_label) or default_label
+                text = _normalize_scalar(
+                    choice.get("text")
+                    or choice.get("content")
+                    or choice.get("value")
+                    or choice.get("answer")
+                )
+            else:
+                label = default_label
+                text = _normalize_scalar(choice)
+            if text:
+                entries.append((label, text))
+        return entries
+
+    if isinstance(raw_choices, dict):
+        raw_texts = raw_choices.get("text") or raw_choices.get("choices") or raw_choices.get("content")
+        raw_labels = raw_choices.get("label") or raw_choices.get("labels") or []
+        if isinstance(raw_texts, list):
+            for index, choice_text in enumerate(raw_texts):
+                default_label = chr(ord("A") + index)
+                label = default_label
+                if isinstance(raw_labels, list) and index < len(raw_labels):
+                    label = _normalize_scalar(raw_labels[index]) or default_label
+                text = _normalize_scalar(choice_text)
+                if text:
+                    entries.append((label, text))
+        return entries
+
+    return entries
+
+
 def _format_choices(raw_choices: Any) -> str:
-    if not isinstance(raw_choices, list) or not raw_choices:
+    choice_entries = _extract_choice_entries(raw_choices)
+    if not choice_entries:
         return ""
-    rendered = []
-    for index, choice in enumerate(raw_choices):
-        letter = chr(ord("A") + index)
-        rendered.append(f"{letter}. {_normalize_scalar(choice)}")
-    return "\n".join(rendered)
+    return "\n".join(f"{label}. {text}" for label, text in choice_entries)
+
+
+def _resolve_choice_answer(raw_choices: Any, raw_answer_ref: Any) -> str:
+    choice_entries = _extract_choice_entries(raw_choices)
+    if not choice_entries or raw_answer_ref in (None, "", []):
+        return ""
+
+    if isinstance(raw_answer_ref, int):
+        if 0 <= raw_answer_ref < len(choice_entries):
+            return choice_entries[raw_answer_ref][1]
+        return ""
+
+    answer_ref = _normalize_scalar(raw_answer_ref)
+    if not answer_ref:
+        return ""
+
+    if answer_ref.isdigit():
+        return _resolve_choice_answer(raw_choices, int(answer_ref))
+
+    normalized_answer_ref = answer_ref.strip().lower()
+    for label, text in choice_entries:
+        if label.strip().lower() == normalized_answer_ref or text.strip().lower() == normalized_answer_ref:
+            return text
+
+    return ""
 
 
 def _compose_question_text(source: DatasetSource, example: dict[str, Any]) -> str:
@@ -247,8 +306,7 @@ def _compose_answer_text(source: DatasetSource, example: dict[str, Any]) -> str:
     if not answer and source.answer_index_field and source.choice_field:
         raw_index = example.get(source.answer_index_field)
         raw_choices = example.get(source.choice_field)
-        if isinstance(raw_index, int) and isinstance(raw_choices, list) and 0 <= raw_index < len(raw_choices):
-            answer = _normalize_scalar(raw_choices[raw_index])
+        answer = _resolve_choice_answer(raw_choices, raw_index)
 
     support_values = _pick_many(example, source.support_fields)
     support_sections = []

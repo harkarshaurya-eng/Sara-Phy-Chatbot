@@ -1,38 +1,41 @@
-.venv/
+# Python
 __pycache__/
+*.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Notebook caches
 .ipynb_checkpoints/
-*.pyc
-*.pyo
-*.pyd
-*.log
-*.tmp
-*.bak
-*.swp
+
+# OS/editor
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
 
-# Hugging Face and model caches
-.cache/
-hf_home/
+# Runtime artifacts
+checkpoints/*.pt
+checkpoints/*.json
+checkpoints/*.txt
+outputs/
+logs/
 
-# Training artifacts
+# Raw and processed data
 data/raw/*
-data/processed/*
-data/final/*
 !data/raw/.gitkeep
+!data/raw/local/
+!data/raw/local/.gitkeep
+!data/raw/local/README_LOCAL_DATA.md
+data/processed/*
 !data/processed/.gitkeep
-!data/final/.gitkeep
-!data/custom/.gitkeep
+data/tokenizer/*
+!data/tokenizer/.gitkeep
 
-outputs/adapters/*
-outputs/merged_model/*
-outputs/logs/*
-!outputs/adapters/.gitkeep
-!outputs/merged_model/.gitkeep
-!outputs/logs/.gitkeep
-
-# TensorBoard
-outputs/logs/tensorboard/
+# Logs
+*.log

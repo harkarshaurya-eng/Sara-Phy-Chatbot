@@ -1,0 +1,9 @@
+name: "tiny_gpt"
+vocab_size: 16000
+block_size: 256
+n_layer: 4
+n_head: 4
+n_embd: 256
+dropout: 0.1
+bias: true
+tokenizer_vocab_size: 16000

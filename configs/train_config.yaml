@@ -1,0 +1,54 @@
+seed: 42
+batch_size: 16
+gradient_accumulation_steps: 4
+max_steps: 5000
+learning_rate: 0.0003
+min_lr: 0.00003
+warmup_steps: 200
+eval_interval: 250
+save_interval: 500
+max_grad_norm: 1.0
+weight_decay: 0.1
+num_workers: 0
+train_val_test_split:
+  train: 0.90
+  val: 0.05
+  test: 0.05
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  tokenizer_dir: "data/tokenizer"
+  local_text_dir: "data/raw/local"
+  sample_dir: "data/sample"
+  max_samples_per_dataset: 5000
+  corpus_file: "data/processed/corpus.txt"
+  train_text_file: "data/processed/train.txt"
+  val_text_file: "data/processed/val.txt"
+  test_text_file: "data/processed/test.txt"
+  train_tokens_file: "data/processed/train_tokens.pt"
+  val_tokens_file: "data/processed/val_tokens.pt"
+  test_tokens_file: "data/processed/test_tokens.pt"
+  manifest_file: "data/raw/dataset_manifest.json"
+  sample_records_file: "data/sample/sample_records.jsonl"
+  sample_corpus_file: "data/sample/sample_corpus.txt"
+preprocessing:
+  min_question_chars: 8
+  min_answer_chars: 20
+  min_text_chars: 80
+  max_text_chars: 2000
+  stride_ratio: 0.5
+tokenizer:
+  special_tokens:
+    - "<|pad|>"
+    - "<|unk|>"
+    - "<|bos|>"
+    - "<|eos|>"
+    - "<|system|>"
+    - "<|user|>"
+    - "<|assistant|>"
+    - "<|endoftext|>"
+generation:
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  max_new_tokens: 200

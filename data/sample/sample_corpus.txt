@@ -1,0 +1,6 @@
+Explain Newton's second law.
+Newton's second law says that the net force on an object equals its mass times its acceleration: F = ma.
+What is Gauss's law?
+Gauss's law states that the electric flux through a closed surface equals the enclosed charge divided by the permittivity of free space.
+Can you explain entropy simply?
+Entropy is a measure of how spread out energy is or how many microscopic arrangements match the same visible state.

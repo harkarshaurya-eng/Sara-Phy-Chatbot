@@ -130,6 +130,10 @@ python src/train.py --model_config configs/tiny_gpt.yaml --train_config configs/
 ```
 
 ```bash
+python src/evaluate.py --checkpoint checkpoints/final_model.pt
+```
+
+```bash
 python src/generate.py --checkpoint checkpoints/final_model.pt --prompt "Explain Newton's second law."
 ```
 
@@ -167,11 +171,16 @@ The downloader uses a registry in [src/download_datasets.py](C:/Users/Admin/Desk
 - `camel-ai/physics`
 - `allenai/sciq`
 - `allenai/ai2_arc` physics-filtered samples
+- `derek-thomas/ScienceQA` physics-filtered samples
+- `UGPhysics/ugphysics`
 - `tasksource/mmlu` physics-related subsets
 - `OpenAssistant/oasst1`
+- `OpenAssistant/oasst2`
 - `HuggingFaceH4/ultrachat_200k`
 - `databricks/databricks-dolly-15k`
 - `Open-Orca/OpenOrca`
+- `Open-Orca/SlimOrca`
+- `roskoN/dailydialog`
 - local `.txt`, `.md`, `.pdf`, `.csv`, `.tsv`, `.json`, and `.jsonl` files from `data/raw/local/`
 
 Not every internet dataset is enabled by default. This project keeps the registry **curated and Colab-friendly**:
@@ -300,6 +309,7 @@ The training loop supports:
 - checkpoint saving
 - checkpoint resume
 - validation loss and perplexity reporting
+- approximate epoch reporting based on dataset size and gradient accumulation
 
 ## How to train
 
@@ -319,6 +329,11 @@ python src/tokenize_dataset.py --config configs/small_gpt.yaml
 python src/train.py --model_config configs/small_gpt.yaml --train_config configs/train_config.yaml
 ```
 
+During training, logs now show both:
+
+- `step=current/max`
+- `epoch=current_epoch/target_epoch_equivalent`
+
 ## How to chat with the model
 
 Terminal chat:
@@ -333,11 +348,30 @@ One-shot generation:
 python src/generate.py --checkpoint checkpoints/final_model.pt --prompt "What is Gauss's law?"
 ```
 
+Evaluation:
+
+```bash
+python src/evaluate.py --checkpoint checkpoints/final_model.pt
+```
+
 Gradio UI:
 
 ```bash
 python app/gradio_chatbot.py
 ```
+
+## Metrics
+
+The evaluation script reports:
+
+- exact match
+- token F1
+- a simple perplexity proxy
+- `mse`
+- `rmse`
+- `mae`
+
+The numeric metrics are computed on the held-out examples where both the reference answer and the model output contain at least one numeric value. The script uses the last numeric value in each answer as a practical physics-focused heuristic.
 
 ## How to improve quality
 

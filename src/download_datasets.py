@@ -127,11 +127,46 @@ DATASET_REGISTRY: list[DatasetSpec] = [
         config_name="ARC-Challenge",
         split_names=["train", "validation", "test"],
         sample_cap=4500,
-        requires_license_review=True,
-        license_name="verify-upstream",
+        license_name="cc-by-sa-4.0",
         source_url="https://huggingface.co/datasets/allenai/ai2_arc",
         description="AI2 ARC challenge questions filtered to physics-like content.",
-        notes="Public on Hugging Face, but verify reuse terms before training for redistribution.",
+    ),
+    DatasetSpec(
+        name="scienceqa_physics_filtered",
+        kind="scienceqa_physics",
+        group="physics",
+        dataset_id="derek-thomas/ScienceQA",
+        split_names=["train", "validation", "test"],
+        sample_cap=4000,
+        license_name="cc-by-nc-sa-4.0",
+        source_url="https://huggingface.co/datasets/derek-thomas/ScienceQA",
+        description="ScienceQA rows filtered to physics-related content.",
+    ),
+    DatasetSpec(
+        name="ugphysics_english",
+        kind="ugphysics",
+        group="physics",
+        dataset_id="UGPhysics/ugphysics",
+        config_names=[
+            "AtomicPhysics",
+            "ClassicalElectromagnetism",
+            "ClassicalMechanics",
+            "Electrodynamics",
+            "GeometricalOptics",
+            "QuantumMechanics",
+            "Relativity",
+            "SemiconductorPhysics",
+            "Solid-StatePhysics",
+            "StatisticalMechanics",
+            "TheoreticalMechanics",
+            "Thermodynamics",
+            "WaveOptics",
+        ],
+        split_names=["en"],
+        sample_cap=6000,
+        license_name="cc-by-nc-sa-4.0",
+        source_url="https://huggingface.co/datasets/UGPhysics/ugphysics",
+        description="University-level physics problem solving dataset in English.",
     ),
     DatasetSpec(
         name="mmlu_physics_subsets",
@@ -186,6 +221,17 @@ DATASET_REGISTRY: list[DatasetSpec] = [
         description="English user-assistant pairs reconstructed from OpenAssistant threads.",
     ),
     DatasetSpec(
+        name="oasst2_english_pairs",
+        kind="oasst2_pairs",
+        group="conversation",
+        dataset_id="OpenAssistant/oasst2",
+        split_names=["train", "validation"],
+        sample_cap=8000,
+        license_name="apache-2.0",
+        source_url="https://huggingface.co/datasets/OpenAssistant/oasst2",
+        description="Larger OpenAssistant English conversation pairs.",
+    ),
+    DatasetSpec(
         name="ultrachat_200k_pairs",
         kind="chat_messages",
         group="conversation",
@@ -216,11 +262,33 @@ DATASET_REGISTRY: list[DatasetSpec] = [
         split_names=["train"],
         streaming=True,
         sample_cap=8000,
-        requires_license_review=True,
-        license_name="verify-upstream",
+        license_name="mit",
         source_url="https://huggingface.co/datasets/Open-Orca/OpenOrca",
         description="Large general conversation and instruction corpus sampled for Colab-friendly use.",
-        notes="Huge dataset. Stream and sample it. Verify reuse terms before redistribution.",
+        notes="Huge dataset. Stream and sample it for Colab-sized runs.",
+    ),
+    DatasetSpec(
+        name="slimorca_pairs",
+        kind="sharegpt_conversations",
+        group="conversation",
+        dataset_id="Open-Orca/SlimOrca",
+        split_names=["train"],
+        streaming=True,
+        sample_cap=6000,
+        license_name="mit",
+        source_url="https://huggingface.co/datasets/Open-Orca/SlimOrca",
+        description="Smaller MIT-licensed ShareGPT-style instruction conversations.",
+    ),
+    DatasetSpec(
+        name="dailydialog_pairs",
+        kind="daily_dialog",
+        group="conversation",
+        dataset_id="roskoN/dailydialog",
+        split_names=["train", "validation", "test"],
+        sample_cap=6000,
+        license_name="cc-by-nc-sa-4.0",
+        source_url="https://huggingface.co/datasets/roskoN/dailydialog",
+        description="Daily multi-turn dialogue pairs for more natural chat behavior.",
     ),
     DatasetSpec(
         name="local_user_files",
@@ -326,6 +394,22 @@ def infer_topic_from_text(text: str, fallback: str = "general physics") -> str:
         if any(keyword in lowered for keyword in keywords):
             return topic
     return fallback
+
+
+def stringify_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return normalize_text(value)
+    if isinstance(value, (int, float, bool)):
+        return normalize_text(value)
+    if isinstance(value, list):
+        parts = [stringify_value(item) for item in value]
+        return normalize_text(" | ".join(part for part in parts if part))
+    if isinstance(value, dict):
+        parts = [f"{normalize_text(key)}: {stringify_value(item)}" for key, item in value.items()]
+        return normalize_text(" | ".join(part for part in parts if part))
+    return normalize_text(value)
 
 
 def normalize_record(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -555,6 +639,99 @@ def download_mmlu_physics(spec: DatasetSpec, max_samples: int, logger) -> list[d
     return rows
 
 
+def download_scienceqa_physics(spec: DatasetSpec, max_samples: int, logger) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in iter_hf_rows(spec, logger=logger):
+        subject = normalize_text(row.get("subject")).lower()
+        question = normalize_text(row.get("question"))
+        hint = normalize_text(row.get("hint"))
+        lecture = normalize_text(row.get("lecture"))
+        solution = normalize_text(row.get("solution"))
+        choices = row.get("choices") or []
+        answer_index = row.get("answer")
+        answer = ""
+        if isinstance(answer_index, int) and 0 <= answer_index < len(choices):
+            answer = normalize_text(choices[answer_index])
+        combined = " ".join([subject, question, hint, lecture, solution, stringify_value(choices), answer])
+        if subject and "physics" not in subject and not looks_physics_like(combined):
+            continue
+
+        rendered_choices = "\n".join(
+            f"{chr(ord('A') + index)}. {normalize_text(choice)}"
+            for index, choice in enumerate(choices)
+            if normalize_text(choice)
+        )
+        prompt_parts = [question]
+        if hint:
+            prompt_parts.append(f"Hint: {hint}")
+        if rendered_choices:
+            prompt_parts.append(f"Choices:\n{rendered_choices}")
+        answer_parts = [part for part in [answer, lecture, solution] if part]
+        done = append_record_if_valid(
+            rows,
+            {
+                "source": spec.name,
+                "topic": infer_topic_from_text(combined),
+                "license": spec.license_name,
+                "question": "\n\n".join(part for part in prompt_parts if part),
+                "answer": "\n\n".join(answer_parts),
+                "metadata": {
+                    "grade": normalize_text(row.get("grade")),
+                    "subject": subject,
+                    "topic": normalize_text(row.get("topic")),
+                },
+            },
+            max_samples=max_samples,
+        )
+        if done:
+            break
+    logger.info("Collected %s ScienceQA physics rows.", len(rows))
+    return rows
+
+
+def download_ugphysics(spec: DatasetSpec, max_samples: int, logger) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    config_names = spec.config_names or []
+    per_subset_cap = max(1, max_samples // max(1, len(config_names)))
+    for config_name in config_names:
+        subset_rows = 0
+        for row in iter_hf_rows(spec, logger=logger, config_name=config_name):
+            question = normalize_text(row.get("problem") or row.get("question") or row.get("input"))
+            solution = stringify_value(row.get("solution") or row.get("analysis") or row.get("rationale"))
+            answer = stringify_value(row.get("answer") or row.get("answers") or row.get("final_answer"))
+            if not question:
+                continue
+            answer_text = solution or answer
+            if solution and answer and answer.lower() not in solution.lower():
+                answer_text = f"{solution}\n\nFinal answer: {answer}"
+            if not answer_text:
+                continue
+            topic = normalize_text(row.get("topic") or row.get("subject")) or config_name.replace("_", " ")
+            done = append_record_if_valid(
+                rows,
+                {
+                    "source": spec.name,
+                    "topic": infer_topic_from_text(f"{question}\n{answer_text}", fallback=topic),
+                    "license": spec.license_name,
+                    "question": question,
+                    "answer": answer_text,
+                    "metadata": {
+                        "subset": config_name,
+                        "level": normalize_text(row.get("level")),
+                        "unit": normalize_text(row.get("unit")),
+                    },
+                },
+                max_samples=max_samples,
+            )
+            subset_rows += 1
+            if done or subset_rows >= per_subset_cap:
+                break
+        logger.info("Collected %s UGPhysics rows from subset %s.", subset_rows, config_name)
+        if len(rows) >= max_samples:
+            break
+    return rows
+
+
 def conversation_messages_to_records(
     messages: Any,
     source: str,
@@ -569,8 +746,12 @@ def conversation_messages_to_records(
     for message in messages:
         if not isinstance(message, dict):
             continue
-        role = normalize_text(message.get("role")).lower()
-        content = normalize_text(message.get("content") or message.get("text"))
+        role = normalize_text(message.get("role") or message.get("from") or message.get("speaker")).lower()
+        if role in {"human", "prompter"}:
+            role = "user"
+        elif role in {"gpt", "assistant", "bot"}:
+            role = "assistant"
+        content = normalize_text(message.get("content") or message.get("text") or message.get("value") or message.get("utterance"))
         if not content:
             continue
         if role == "user":
@@ -672,7 +853,7 @@ def download_openorca(spec: DatasetSpec, max_samples: int, logger) -> list[dict[
     return rows
 
 
-def download_oasst1_pairs(spec: DatasetSpec, max_samples: int, logger) -> list[dict[str, Any]]:
+def download_oasst_pairs(spec: DatasetSpec, max_samples: int, logger) -> list[dict[str, Any]]:
     dataset_rows = list(iter_hf_rows(spec, logger=logger))
     by_id: dict[str, dict[str, Any]] = {}
     ordered_rows: list[dict[str, Any]] = []
@@ -718,6 +899,52 @@ def download_oasst1_pairs(spec: DatasetSpec, max_samples: int, logger) -> list[d
         if done:
             break
     logger.info("Collected %s OpenAssistant pair rows.", len(rows))
+    return rows
+
+
+def download_sharegpt_conversations(spec: DatasetSpec, max_samples: int, logger) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in iter_hf_rows(spec, logger=logger):
+        records = conversation_messages_to_records(
+            row.get("conversations") or row.get("messages"),
+            source=spec.name,
+            license_name=spec.license_name,
+            metadata={"system_prompt": normalize_text(row.get("system_prompt"))},
+        )
+        for record in records:
+            rows.append(record)
+            if len(rows) >= max_samples:
+                logger.info("Collected %s ShareGPT-style conversation rows.", len(rows))
+                return rows
+    logger.info("Collected %s ShareGPT-style conversation rows.", len(rows))
+    return rows
+
+
+def download_dailydialog(spec: DatasetSpec, max_samples: int, logger) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in iter_hf_rows(spec, logger=logger):
+        dialogue = row.get("dialog") or row.get("utterances") or row.get("dialogue")
+        if not isinstance(dialogue, list):
+            continue
+        normalized_turns = [normalize_text(turn) for turn in dialogue if normalize_text(turn)]
+        for index in range(0, len(normalized_turns) - 1, 2):
+            question = normalized_turns[index]
+            answer = normalized_turns[index + 1]
+            done = append_record_if_valid(
+                rows,
+                {
+                    "source": spec.name,
+                    "topic": infer_topic_from_text(f"{question}\n{answer}", fallback="general conversation"),
+                    "license": spec.license_name,
+                    "question": question,
+                    "answer": answer,
+                },
+                max_samples=max_samples,
+            )
+            if done:
+                logger.info("Collected %s DailyDialog rows.", len(rows))
+                return rows
+    logger.info("Collected %s DailyDialog rows.", len(rows))
     return rows
 
 
@@ -978,6 +1205,10 @@ def run_source(spec: DatasetSpec, data_paths: DataPathsConfig, max_samples: int,
         return download_sciq(spec, max_samples=max_samples, logger=logger)
     if spec.kind == "arc_physics":
         return download_arc_physics(spec, max_samples=max_samples, logger=logger)
+    if spec.kind == "scienceqa_physics":
+        return download_scienceqa_physics(spec, max_samples=max_samples, logger=logger)
+    if spec.kind == "ugphysics":
+        return download_ugphysics(spec, max_samples=max_samples, logger=logger)
     if spec.kind == "openbookqa":
         return download_openbookqa(spec, max_samples=max_samples, logger=logger)
     if spec.kind == "mmlu_physics":
@@ -988,8 +1219,12 @@ def run_source(spec: DatasetSpec, data_paths: DataPathsConfig, max_samples: int,
         return download_dolly(spec, max_samples=max_samples, logger=logger)
     if spec.kind == "openorca":
         return download_openorca(spec, max_samples=max_samples, logger=logger)
-    if spec.kind == "oasst1_pairs":
-        return download_oasst1_pairs(spec, max_samples=max_samples, logger=logger)
+    if spec.kind in {"oasst1_pairs", "oasst2_pairs"}:
+        return download_oasst_pairs(spec, max_samples=max_samples, logger=logger)
+    if spec.kind == "sharegpt_conversations":
+        return download_sharegpt_conversations(spec, max_samples=max_samples, logger=logger)
+    if spec.kind == "daily_dialog":
+        return download_dailydialog(spec, max_samples=max_samples, logger=logger)
     if spec.kind == "openstax_pdf":
         return download_openstax(spec, raw_dir=raw_dir, logger=logger)
     if spec.kind == "local_files":

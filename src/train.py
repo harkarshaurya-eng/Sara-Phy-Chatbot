@@ -169,9 +169,17 @@ def main() -> None:
     train_loader = create_dataloader(train_tokens_path, train_cfg.batch_size, shuffle=True, num_workers=train_cfg.num_workers)
     val_loader = create_dataloader(val_tokens_path, train_cfg.batch_size, shuffle=False, num_workers=train_cfg.num_workers)
     train_iterator = cycle_loader(train_loader)
+    micro_batches_per_epoch = max(1, len(train_loader))
+    steps_per_epoch = max(1.0, micro_batches_per_epoch / max(1, train_cfg.gradient_accumulation_steps))
+    target_epoch_equivalent = train_cfg.max_steps / steps_per_epoch
 
     model = GPTLanguageModel(model_cfg).to(device)
     logger.info("Model parameters: %.2fM", model.get_num_params() / 1_000_000)
+    logger.info(
+        "Approximate epoch schedule: steps_per_epoch=%.2f target_epochs=%.2f",
+        steps_per_epoch,
+        target_epoch_equivalent,
+    )
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -238,6 +246,7 @@ def main() -> None:
 
         step_loss = micro_loss_total
         running_loss += step_loss
+        current_epoch = (step + 1) / steps_per_epoch
 
         if (step + 1) % 10 == 0 or step == start_step:
             elapsed = time.time() - step_start
@@ -248,9 +257,11 @@ def main() -> None:
             )
             tokens_per_second = tokens_per_step / max(elapsed, 1e-6)
             logger.info(
-                "step=%s/%s loss=%.4f ppl=%.2f lr=%.6f tok/s=%.1f",
+                "step=%s/%s epoch=%.2f/%.2f loss=%.4f ppl=%.2f lr=%.6f tok/s=%.1f",
                 step + 1,
                 train_cfg.max_steps,
+                current_epoch,
+                target_epoch_equivalent,
                 step_loss,
                 math.exp(min(step_loss, 20.0)),
                 lr,
@@ -259,7 +270,13 @@ def main() -> None:
 
         if (step + 1) % train_cfg.eval_interval == 0 or step == start_step:
             val_loss, val_ppl = estimate_loss(model, val_loader, device=device)
-            logger.info("validation step=%s loss=%.4f ppl=%.2f", step + 1, val_loss, val_ppl)
+            logger.info(
+                "validation step=%s epoch=%.2f loss=%.4f ppl=%.2f",
+                step + 1,
+                current_epoch,
+                val_loss,
+                val_ppl,
+            )
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
 
@@ -278,6 +295,8 @@ def main() -> None:
         "training_time_seconds": round(total_time, 2),
         "training_time_human": format_duration(total_time),
         "model_params": model.get_num_params(),
+        "steps_per_epoch": round(steps_per_epoch, 4),
+        "epoch_equivalent_total": round(target_epoch_equivalent, 4),
     }
     save_json(summary, checkpoints_dir / "training_summary.json")
     logger.info("Training finished. Final model saved to %s", final_checkpoint_path)

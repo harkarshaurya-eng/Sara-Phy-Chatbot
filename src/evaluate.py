@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 from pathlib import Path
+import re
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.generate import build_chat_prompt, generate_response_text, load_model_and_tokenizer
 from src.utils import normalize_text, read_jsonl, setup_logging
+
+
+NUMBER_PATTERN = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,6 +46,16 @@ def token_f1(prediction: str, reference: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
+def extract_last_number(text: str) -> float | None:
+    matches = NUMBER_PATTERN.findall(normalize_text(text))
+    if not matches:
+        return None
+    try:
+        return float(matches[-1])
+    except ValueError:
+        return None
+
+
 def main() -> None:
     args = parse_args()
     log_dir = PROJECT_ROOT / "logs"
@@ -62,6 +76,8 @@ def main() -> None:
 
     exact_matches = 0
     f1_scores: list[float] = []
+    numeric_squared_errors: list[float] = []
+    numeric_absolute_errors: list[float] = []
     outputs: list[dict[str, object]] = []
     for example in examples:
         prompt_text = build_chat_prompt(example["question"])
@@ -81,6 +97,15 @@ def main() -> None:
         exact_matches += exact
         f1 = token_f1(prediction, reference)
         f1_scores.append(f1)
+        prediction_value = extract_last_number(prediction)
+        reference_value = extract_last_number(reference)
+        squared_error = None
+        absolute_error = None
+        if prediction_value is not None and reference_value is not None:
+            absolute_error = abs(prediction_value - reference_value)
+            squared_error = absolute_error ** 2
+            numeric_absolute_errors.append(absolute_error)
+            numeric_squared_errors.append(squared_error)
         outputs.append(
             {
                 "topic": example.get("topic", "general physics"),
@@ -89,14 +114,30 @@ def main() -> None:
                 "reference": reference,
                 "exact_match": exact,
                 "token_f1": f1,
+                "prediction_value": prediction_value,
+                "reference_value": reference_value,
+                "absolute_error": absolute_error,
+                "squared_error": squared_error,
             }
         )
+
+    mse = None
+    rmse = None
+    mae = None
+    if numeric_squared_errors:
+        mse = sum(numeric_squared_errors) / len(numeric_squared_errors)
+        rmse = math.sqrt(mse)
+        mae = sum(numeric_absolute_errors) / len(numeric_absolute_errors)
 
     summary = {
         "examples": len(outputs),
         "exact_match": exact_matches / max(1, len(outputs)),
         "token_f1": sum(f1_scores) / max(1, len(f1_scores)),
         "perplexity_proxy": math.exp(min(5.0, 1.0 - min(1.0, sum(f1_scores) / max(1, len(f1_scores))))),
+        "numeric_examples": len(numeric_squared_errors),
+        "mse": mse,
+        "rmse": rmse,
+        "mae": mae,
     }
     logger.info("Evaluation summary: %s", summary)
     output_path = PROJECT_ROOT / "checkpoints" / "evaluation_report.json"

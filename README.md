@@ -146,23 +146,61 @@ python app/gradio_chatbot.py
 The notebook [notebooks/colab_train_from_scratch.ipynb](C:/Users/Admin/Desktop/SaraLLM/physics-gpt-from-scratch/notebooks/colab_train_from_scratch.ipynb) walks through:
 
 1. checking GPU or TPU status
-2. installing requirements
-3. mounting Google Drive
-4. downloading datasets
-5. preparing the training corpus
-6. training the tokenizer from scratch
-7. tokenizing the dataset
-8. training the tiny GPT model
-9. resuming training if needed
-10. generating a sample answer
-11. launching the Gradio chatbot
-12. saving checkpoints to Drive
+2. cloning or reopening the repository
+3. installing requirements
+4. mounting Google Drive
+5. downloading datasets
+6. preparing the training corpus
+7. training the tokenizer from scratch
+8. tokenizing the dataset
+9. training the tiny GPT model
+10. resuming training if needed
+11. evaluating the model
+12. generating a sample answer
+13. launching the Gradio chatbot
+14. saving checkpoints to Drive
 
 Recommended Colab setting:
 
 - `Runtime > Change runtime type > GPU`
 
 This project is built for GPU. TPU is not the intended path here.
+
+### Exact Colab start commands
+
+Use these cells in order:
+
+```python
+%cd /content
+!rm -rf physics-gpt-from-scratch
+!git clone https://github.com/harkarshaurya-eng/Sara-Phy-Chatbot.git physics-gpt-from-scratch
+%cd /content/physics-gpt-from-scratch
+!pwd
+!ls
+```
+
+```python
+!pip install -r requirements.txt
+```
+
+```python
+!python src/download_datasets.py --only-group physics --only-group conversation --max-samples-per-dataset 5000
+!python src/prepare_text_corpus.py
+!python src/train_tokenizer.py --config configs/tiny_gpt.yaml
+!python src/tokenize_dataset.py --config configs/tiny_gpt.yaml
+!python src/train.py --model_config configs/tiny_gpt.yaml --train_config configs/train_config.yaml
+```
+
+```python
+!python src/evaluate.py --checkpoint checkpoints/final_model.pt
+!python src/generate.py --checkpoint checkpoints/final_model.pt --prompt "Explain Newton's second law."
+```
+
+Important:
+
+- always run commands from `/content/physics-gpt-from-scratch`
+- if you see `/content/src/...` in an error, you are in the wrong folder
+- after a Colab runtime restart, run `%cd /content/physics-gpt-from-scratch` again before continuing
 
 ## Dataset instructions
 

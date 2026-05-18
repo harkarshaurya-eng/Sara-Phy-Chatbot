@@ -1,12 +1,12 @@
 seed: 42
-batch_size: 16
-gradient_accumulation_steps: 4
-max_steps: 5000
+batch_size: 8
+gradient_accumulation_steps: 8
+max_steps: 15000
 learning_rate: 0.0003
 min_lr: 0.00003
-warmup_steps: 200
-eval_interval: 250
-save_interval: 500
+warmup_steps: 500
+eval_interval: 500
+save_interval: 1000
 max_grad_norm: 1.0
 weight_decay: 0.1
 num_workers: 0
@@ -20,7 +20,7 @@ data:
   tokenizer_dir: "data/tokenizer"
   local_text_dir: "data/raw/local"
   sample_dir: "data/sample"
-  max_samples_per_dataset: 5000
+  max_samples_per_dataset: 10000
   corpus_file: "data/processed/corpus.txt"
   train_text_file: "data/processed/train.txt"
   val_text_file: "data/processed/val.txt"

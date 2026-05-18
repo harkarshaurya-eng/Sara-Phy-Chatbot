@@ -173,7 +173,7 @@ Use these cells in order:
 ```python
 %cd /content
 !rm -rf physics-gpt-from-scratch
-!git clone https://github.com/harkarshaurya-eng/Sara-Phy-Chatbot.git physics-gpt-from-scratch
+!git clone https://github.com/harkarshaurya-eng/Phy-model-chatbot.git physics-gpt-from-scratch
 %cd /content/physics-gpt-from-scratch
 !pwd
 !ls
@@ -184,7 +184,7 @@ Use these cells in order:
 ```
 
 ```python
-!python src/download_datasets.py --only-group physics --only-group conversation --max-samples-per-dataset 5000
+!python src/download_datasets.py --only-group physics --only-group conversation --max-samples-per-dataset 10000
 !python src/prepare_text_corpus.py
 !python src/train_tokenizer.py --config configs/tiny_gpt.yaml
 !python src/tokenize_dataset.py --config configs/tiny_gpt.yaml
@@ -209,6 +209,7 @@ The downloader uses a registry in [src/download_datasets.py](C:/Users/Admin/Desk
 - `camel-ai/physics`
 - `allenai/sciq`
 - `allenai/ai2_arc` physics-filtered samples
+- `allenai/ai2_arc` easy split physics-filtered samples
 - `derek-thomas/ScienceQA` physics-filtered samples
 - `UGPhysics/ugphysics`
 - `tasksource/mmlu` physics-related subsets
@@ -241,7 +242,7 @@ python src/download_datasets.py --list-sources
 ```
 
 ```bash
-python src/download_datasets.py --max-samples-per-dataset 3000
+python src/download_datasets.py --max-samples-per-dataset 10000
 ```
 
 ```bash
@@ -254,9 +255,9 @@ python src/download_datasets.py --include-review-sources
 
 The default global sample cap is set in [configs/train_config.yaml](C:/Users/Admin/Desktop/SaraLLM/physics-gpt-from-scratch/configs/train_config.yaml):
 
-- `data.max_samples_per_dataset: 5000`
+- `data.max_samples_per_dataset: 10000`
 
-That gives you a much larger corpus than the original smoke-test setup without making the Colab pipeline explode in size.
+That gives you a much larger corpus than the earlier smoke-test setup while still staying in Colab territory.
 
 ## Corpus format
 
@@ -328,14 +329,14 @@ The optimizer and training loop settings live in [configs/train_config.yaml](C:/
 
 Default values:
 
-- batch size `16`
-- gradient accumulation `4`
-- max steps `5000`
+- batch size `8`
+- gradient accumulation `8`
+- max steps `15000`
 - learning rate `3e-4`
 - min learning rate `3e-5`
-- warmup steps `200`
-- eval interval `250`
-- save interval `500`
+- warmup steps `500`
+- eval interval `500`
+- save interval `1000`
 - max grad norm `1.0`
 
 The training loop supports:
@@ -371,6 +372,24 @@ During training, logs now show both:
 
 - `step=current/max`
 - `epoch=current_epoch/target_epoch_equivalent`
+
+## Train Harder
+
+If you want the heavier default run:
+
+- use the larger default dataset cap of `10000` samples per dataset
+- keep the stronger `15000`-step training schedule in [configs/train_config.yaml](C:/Users/Admin/Desktop/SaraLLM/physics-gpt-from-scratch/configs/train_config.yaml)
+- switch to [configs/small_gpt.yaml](C:/Users/Admin/Desktop/SaraLLM/physics-gpt-from-scratch/configs/small_gpt.yaml) only if your Colab GPU memory can handle it
+
+Heavier Colab command sequence:
+
+```bash
+python src/download_datasets.py --only-group physics --only-group conversation --max-samples-per-dataset 10000
+python src/prepare_text_corpus.py
+python src/train_tokenizer.py --config configs/tiny_gpt.yaml
+python src/tokenize_dataset.py --config configs/tiny_gpt.yaml
+python src/train.py --model_config configs/tiny_gpt.yaml --train_config configs/train_config.yaml
+```
 
 ## How to chat with the model
 
